@@ -1,0 +1,258 @@
+---
+  title: "NLP Analysis of Internship Job Descriptions"
+author: "Chelsea Opoku"
+date: "10/31/2026"
+output:
+  html_document: default
+pdf_document: default
+---
+  
+  ## Introduction
+  
+#  This analysis uses natural language processing (NLP) in R to explore 10 internship job descriptions related to data analytics, data science, and data engineering. The objective is to identify frequently occurring terms and examine similarities in word usage through hierarchical and K-means clustering.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 10,
+  fig.height = 7
+)
+```
+
+## 1. Load Packages and Text Files
+
+```{r load-data}
+# Load required packages
+library(tm)
+library(SnowballC)
+library(ggplot2)
+library(wordcloud)
+library(RColorBrewer)
+library(cluster)
+
+# Set directory containing internship descriptions
+cname <- file.path("jobs_text")
+
+# Confirm that the directory exists
+stopifnot(dir.exists(cname))
+
+# List text files
+text_files <- list.files(
+  cname,
+  pattern = "\\.txt$",
+  full.names = TRUE
+)
+
+basename(text_files)
+
+# Confirm that 10 text files are available
+stopifnot(length(text_files) == 10)
+
+# Import text documents into a corpus
+docs <- Corpus(
+  DirSource(cname, pattern = "\\.txt$")
+)
+```
+
+## 2. Text Preprocessing
+
+#The documents are cleaned by removing punctuation, numbers, common English stopwords, and unnecessary whitespace. Stemming is applied to reduce words to common roots.
+
+```{r preprocessing}
+# Convert text to lowercase
+docs <- tm_map(docs, content_transformer(tolower))
+
+# Remove punctuation and numbers
+docs <- tm_map(docs, removePunctuation)
+docs <- tm_map(docs, removeNumbers)
+
+# Remove special characters left from job descriptions
+docs <- tm_map(
+  docs,
+  content_transformer(function(x) {
+    gsub("[^[:alnum:][:space:]]", " ", x)
+  })
+)
+
+# Remove common English stopwords
+docs <- tm_map(
+  docs,
+  removeWords,
+  stopwords("english")
+)
+
+# Reduce words to their stems
+docs <- tm_map(docs, stemDocument)
+
+# Remove extra whitespace
+docs <- tm_map(docs, stripWhitespace)
+```
+
+## 3. Document-Term Matrix and Frequency Analysis
+
+#The document-term matrix represents the frequency of terms within each job description. Sparse terms are removed to focus on terms appearing across multiple documents.
+
+```{r term-matrix}
+# Create document-term and term-document matrices
+dtm <- DocumentTermMatrix(docs)
+tdm <- TermDocumentMatrix(docs)
+
+# Convert the original DTM into a matrix
+m <- as.matrix(dtm)
+
+# Display the original matrix dimensions
+dim(m)
+
+# Remove sparse terms
+dtms <- removeSparseTerms(dtm, 0.8)
+
+# Convert filtered DTM to a matrix
+m2 <- as.matrix(dtms)
+
+# Display filtered matrix dimensions
+dim(m2)
+
+# Calculate term frequencies
+freq <- colSums(m2)
+
+# Sort frequencies in descending order
+freq <- sort(freq, decreasing = TRUE)
+
+# Display the 20 most frequent terms
+head(freq, 20)
+
+# Find terms occurring at least twice
+findFreqTerms(dtm, lowfreq = 2)
+```
+
+## 4. Word-Frequency Bar Chart
+
+#The bar chart displays the 20 most frequently occurring terms across the internship job descriptions.
+
+```{r word-frequency, fig.height=7}
+# Create a data frame containing the top 20 terms
+wf <- data.frame(
+  word = names(head(freq, 20)),
+  frequency = as.numeric(head(freq, 20))
+)
+
+# Generate word-frequency bar chart
+ggplot(
+  wf,
+  aes(
+    x = reorder(word, frequency),
+    y = frequency
+  )
+) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    title = "Top 20 Words in Data Internship Job Descriptions",
+    x = "Terms",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+```
+
+## 5. Word Cloud
+
+#The word cloud provides a visual representation of the most frequently occurring terms, with larger words representing higher frequencies.
+
+```{r word-cloud, fig.width=10, fig.height=7}
+# Select color palette
+dark2 <- brewer.pal(6, "Dark2")
+
+# Generate word cloud
+set.seed(123)
+
+wordcloud(
+  words = names(freq),
+  freq = freq,
+  max.words = 100,
+  random.order = FALSE,
+  rot.per = 0.2,
+  colors = dark2
+)
+```
+
+## 6. Hierarchical Clustering
+
+#Hierarchical clustering is used to examine similarities in the frequency patterns of the 20 most common terms across the job descriptions.
+
+```{r hierarchical-clustering, fig.width=12, fig.height=8}
+# Select the 20 most frequent terms
+top_terms <- names(head(freq, 20))
+
+# Create a term-by-document matrix
+term_matrix <- t(
+  m2[, top_terms, drop = FALSE]
+)
+
+# Calculate Euclidean distances
+d <- dist(
+  term_matrix,
+  method = "euclidean"
+)
+
+# Perform hierarchical clustering
+hc <- hclust(
+  d,
+  method = "ward.D2"
+)
+
+# Generate dendrogram
+plot(
+  hc,
+  main = "Hierarchical Clustering of Internship Job Description Terms",
+  xlab = "Terms",
+  sub = "",
+  cex = 0.8
+)
+
+# Highlight five clusters
+rect.hclust(
+  hc,
+  k = 5,
+  border = 2:6
+)
+```
+
+## 7. K-Means Clustering
+
+#K-means clustering groups the selected terms into two clusters based on similarities in their frequency patterns across the internship descriptions.
+
+```{r kmeans-clustering, fig.width=12, fig.height=8}
+# Use the term matrix from hierarchical clustering
+k_data <- term_matrix
+
+# Perform K-means clustering
+set.seed(123)
+
+kfit <- kmeans(
+  k_data,
+  centers = 2,
+  nstart = 25
+)
+
+# Display cluster assignments
+kfit$cluster
+
+# Generate K-means cluster plot
+clusplot(
+  k_data,
+  kfit$cluster,
+  color = TRUE,
+  shade = TRUE,
+  labels = 2,
+  lines = 0,
+  main = "K-Means Clustering of Internship Job Description Terms"
+)
+```
+
+## 8. Conclusion
+
+#The NLP analysis explores the most recurring terms in 10 data-related internship descriptions. Word-frequency analysis and the word cloud highlight recurring concepts, while hierarchical and K-means clustering examine similarities in how terms are distributed across the documents.
+
+#The results provide a way to explore patterns in the language employers use when describing technical responsibilities, qualifications, and professional expectations.
